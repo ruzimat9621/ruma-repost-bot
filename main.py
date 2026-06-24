@@ -1,5 +1,4 @@
 import os
-import asyncio
 import tempfile
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -17,14 +16,22 @@ TARGET_CHAT = os.getenv("TARGET_CHAT", "@ruma_collection")
 HEADER_TEXT = os.getenv("HEADER_TEXT", "Ruma Premium🩵")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "Zakaz berish uchun: @ruma_admin")
 
+
+def parse_chat(value: str):
+    value = value.strip()
+    if value.startswith("-100") or value.lstrip("-").isdigit():
+        return int(value)
+    return value
+
+
 SOURCE_CHATS = [
-    item.strip()
+    parse_chat(item)
     for item in SOURCE_CHATS_RAW.split(",")
     if item.strip()
 ]
 
 
-def build_caption(original_text: str | None) -> str:
+def build_caption(original_text):
     original_text = (original_text or "").strip()
 
     if original_text:
@@ -40,33 +47,46 @@ client = TelegramClient(
 )
 
 
-@client.on(events.NewMessage(chats=SOURCE_CHATS))
-async def repost_handler(event):
-    try:
-        message = event.message
-        caption = build_caption(message.message)
+async def send_repost(message):
+    caption = build_caption(message.message)
 
-        if message.media:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                file_path = await message.download_media(file=tmpdir)
+    if message.media:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = await message.download_media(file=tmpdir)
 
-                if file_path:
+            if file_path:
+                if len(caption) <= 1000:
                     await client.send_file(
                         TARGET_CHAT,
                         file_path,
                         caption=caption
                     )
                 else:
+                    await client.send_file(
+                        TARGET_CHAT,
+                        file_path
+                    )
                     await client.send_message(
                         TARGET_CHAT,
                         caption
                     )
-        else:
-            await client.send_message(
-                TARGET_CHAT,
-                caption
-            )
+            else:
+                await client.send_message(
+                    TARGET_CHAT,
+                    caption
+                )
+    else:
+        await client.send_message(
+            TARGET_CHAT,
+            caption
+        )
 
+
+@client.on(events.NewMessage(chats=SOURCE_CHATS))
+async def repost_handler(event):
+    try:
+        message = event.message
+        await send_repost(message)
         print(f"Reposted message ID: {message.id}")
 
     except Exception as e:
@@ -77,6 +97,10 @@ async def main():
     print("Ruma repost bot started.")
     print("Source chats:", SOURCE_CHATS)
     print("Target chat:", TARGET_CHAT)
+
+    if not SOURCE_CHATS:
+        print("ERROR: SOURCE_CHATS empty. Add source chat IDs in environment variables.")
+
     await client.run_until_disconnected()
 
 
