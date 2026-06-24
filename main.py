@@ -64,7 +64,6 @@ async def start_web_server():
     await site.start()
 
     log(f"Web server started on port {PORT}")
-    return runner
 
 
 async def main():
@@ -97,38 +96,23 @@ async def main():
                             caption=caption
                         )
                     else:
-                        await client.send_file(
-                            TARGET_CHAT,
-                            file_path
-                        )
-                        await client.send_message(
-                            TARGET_CHAT,
-                            caption
-                        )
+                        await client.send_file(TARGET_CHAT, file_path)
+                        await client.send_message(TARGET_CHAT, caption)
                 else:
-                    await client.send_message(
-                        TARGET_CHAT,
-                        caption
-                    )
+                    await client.send_message(TARGET_CHAT, caption)
         else:
-            await client.send_message(
-                TARGET_CHAT,
-                caption
-            )
+            await client.send_message(TARGET_CHAT, caption)
 
-    @client.on(events.NewMessage())
+    @client.on(events.NewMessage(chats=SOURCE_CHATS))
     async def repost_handler(event):
         try:
-            chat_id = event.chat_id
             message = event.message
 
-            log(f"NEW MESSAGE DETECTED. chat_id={chat_id}, message_id={message.id}")
-
-            if chat_id not in SOURCE_CHATS:
-                log(f"SKIPPED. This chat_id is not in SOURCE_CHATS: {chat_id}")
+            if event.out:
+                log(f"SKIPPED OUTGOING MESSAGE. chat_id={event.chat_id}, message_id={message.id}")
                 return
 
-            log(f"MATCHED SOURCE CHAT. Reposting message_id={message.id}")
+            log(f"SOURCE MESSAGE DETECTED. chat_id={event.chat_id}, message_id={message.id}")
 
             await send_repost(message)
 
@@ -138,23 +122,13 @@ async def main():
             log(f"ERROR while reposting: {e}")
 
     await start_web_server()
-
     await client.start()
 
     me = await client.get_me()
     log(f"Telegram session logged in as: {me.first_name} / id={me.id}")
-    log(f"Ruma repost bot started.")
+    log("Ruma repost bot started.")
     log(f"Source chats: {SOURCE_CHATS}")
     log(f"Target chat: {TARGET_CHAT}")
-
-    try:
-        await client.send_message(
-            TARGET_CHAT,
-            "✅ Ruma repost bot ishga tushdi. Test xabar."
-        )
-        log("TEST MESSAGE SENT TO TARGET CHANNEL.")
-    except Exception as e:
-        log(f"ERROR sending test message to target: {e}")
 
     await client.run_until_disconnected()
 
