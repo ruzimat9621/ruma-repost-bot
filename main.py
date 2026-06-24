@@ -1,4 +1,5 @@
 import os
+import asyncio
 import tempfile
 from aiohttp import web
 from telethon import TelegramClient, events
@@ -43,59 +44,6 @@ def build_caption(original_text):
     return f"{HEADER_TEXT}\n\n{FOOTER_TEXT}"
 
 
-client = TelegramClient(
-    StringSession(SESSION_STRING),
-    API_ID,
-    API_HASH
-)
-
-
-async def send_repost(message):
-    caption = build_caption(message.message)
-
-    if message.media:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = await message.download_media(file=tmpdir)
-
-            if file_path:
-                if len(caption) <= 1000:
-                    await client.send_file(
-                        TARGET_CHAT,
-                        file_path,
-                        caption=caption
-                    )
-                else:
-                    await client.send_file(
-                        TARGET_CHAT,
-                        file_path
-                    )
-                    await client.send_message(
-                        TARGET_CHAT,
-                        caption
-                    )
-            else:
-                await client.send_message(
-                    TARGET_CHAT,
-                    caption
-                )
-    else:
-        await client.send_message(
-            TARGET_CHAT,
-            caption
-        )
-
-
-@client.on(events.NewMessage(chats=SOURCE_CHATS))
-async def repost_handler(event):
-    try:
-        message = event.message
-        await send_repost(message)
-        print(f"Reposted message ID: {message.id}")
-
-    except Exception as e:
-        print(f"Error while reposting: {e}")
-
-
 async def health(request):
     return web.Response(text="Ruma repost bot is running")
 
@@ -112,9 +60,68 @@ async def start_web_server():
     await site.start()
 
     print(f"Web server started on port {PORT}")
+    return runner
 
 
 async def main():
+    if not API_ID or not API_HASH or not SESSION_STRING:
+        print("ERROR: API_ID, API_HASH yoki SESSION_STRING kiritilmagan.")
+        return
+
+    if not SOURCE_CHATS:
+        print("ERROR: SOURCE_CHATS empty. Source kanal CHAT_ID ni Environment Variables ga qo‘shing.")
+        return
+
+    client = TelegramClient(
+        StringSession(SESSION_STRING),
+        API_ID,
+        API_HASH
+    )
+
+    async def send_repost(message):
+        caption = build_caption(message.message)
+
+        if message.media:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                file_path = await message.download_media(file=tmpdir)
+
+                if file_path:
+                    if len(caption) <= 1000:
+                        await client.send_file(
+                            TARGET_CHAT,
+                            file_path,
+                            caption=caption
+                        )
+                    else:
+                        await client.send_file(
+                            TARGET_CHAT,
+                            file_path
+                        )
+                        await client.send_message(
+                            TARGET_CHAT,
+                            caption
+                        )
+                else:
+                    await client.send_message(
+                        TARGET_CHAT,
+                        caption
+                    )
+        else:
+            await client.send_message(
+                TARGET_CHAT,
+                caption
+            )
+
+    @client.on(events.NewMessage(chats=SOURCE_CHATS))
+    async def repost_handler(event):
+        try:
+            message = event.message
+            await send_repost(message)
+            print(f"Reposted message ID: {message.id}")
+
+        except Exception as e:
+            print(f"Error while reposting: {e}")
+
     await start_web_server()
 
     await client.start()
@@ -123,11 +130,8 @@ async def main():
     print("Source chats:", SOURCE_CHATS)
     print("Target chat:", TARGET_CHAT)
 
-    if not SOURCE_CHATS:
-        print("ERROR: SOURCE_CHATS empty. Add source chat IDs in environment variables.")
-
     await client.run_until_disconnected()
 
 
 if __name__ == "__main__":
-    client.loop.run_until_complete(main())
+    asyncio.run(main())
