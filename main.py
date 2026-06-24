@@ -1,5 +1,6 @@
 import os
 import tempfile
+from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
@@ -15,6 +16,8 @@ TARGET_CHAT = os.getenv("TARGET_CHAT", "@ruma_collection")
 
 HEADER_TEXT = os.getenv("HEADER_TEXT", "Ruma Premium🩵")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "Zakaz berish uchun: @ruma_admin")
+
+PORT = int(os.getenv("PORT", "8080"))
 
 
 def parse_chat(value: str):
@@ -93,7 +96,29 @@ async def repost_handler(event):
         print(f"Error while reposting: {e}")
 
 
+async def health(request):
+    return web.Response(text="Ruma repost bot is running")
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", health)
+    app.router.add_get("/health", health)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+
+    print(f"Web server started on port {PORT}")
+
+
 async def main():
+    await start_web_server()
+
+    await client.start()
+
     print("Ruma repost bot started.")
     print("Source chats:", SOURCE_CHATS)
     print("Target chat:", TARGET_CHAT)
@@ -105,5 +130,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
+    client.loop.run_until_complete(main())
