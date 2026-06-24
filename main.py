@@ -21,6 +21,10 @@ FOOTER_TEXT = os.getenv("FOOTER_TEXT", "Zakaz berish uchun: @ruma_admin")
 PORT = int(os.getenv("PORT", "8080"))
 
 
+def log(text):
+    print(text, flush=True)
+
+
 def parse_chat(value: str):
     value = value.strip()
     if value.startswith("-100") or value.lstrip("-").isdigit():
@@ -59,17 +63,17 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
-    print(f"Web server started on port {PORT}")
+    log(f"Web server started on port {PORT}")
     return runner
 
 
 async def main():
     if not API_ID or not API_HASH or not SESSION_STRING:
-        print("ERROR: API_ID, API_HASH yoki SESSION_STRING kiritilmagan.")
+        log("ERROR: API_ID, API_HASH yoki SESSION_STRING kiritilmagan.")
         return
 
     if not SOURCE_CHATS:
-        print("ERROR: SOURCE_CHATS empty. Source kanal CHAT_ID ni Environment Variables ga qo‘shing.")
+        log("ERROR: SOURCE_CHATS empty. Source kanal CHAT_ID ni Environment Variables ga qo‘shing.")
         return
 
     client = TelegramClient(
@@ -112,23 +116,45 @@ async def main():
                 caption
             )
 
-    @client.on(events.NewMessage(chats=SOURCE_CHATS))
+    @client.on(events.NewMessage())
     async def repost_handler(event):
         try:
+            chat_id = event.chat_id
             message = event.message
+
+            log(f"NEW MESSAGE DETECTED. chat_id={chat_id}, message_id={message.id}")
+
+            if chat_id not in SOURCE_CHATS:
+                log(f"SKIPPED. This chat_id is not in SOURCE_CHATS: {chat_id}")
+                return
+
+            log(f"MATCHED SOURCE CHAT. Reposting message_id={message.id}")
+
             await send_repost(message)
-            print(f"Reposted message ID: {message.id}")
+
+            log(f"REPOSTED SUCCESSFULLY. message_id={message.id}")
 
         except Exception as e:
-            print(f"Error while reposting: {e}")
+            log(f"ERROR while reposting: {e}")
 
     await start_web_server()
 
     await client.start()
 
-    print("Ruma repost bot started.")
-    print("Source chats:", SOURCE_CHATS)
-    print("Target chat:", TARGET_CHAT)
+    me = await client.get_me()
+    log(f"Telegram session logged in as: {me.first_name} / id={me.id}")
+    log(f"Ruma repost bot started.")
+    log(f"Source chats: {SOURCE_CHATS}")
+    log(f"Target chat: {TARGET_CHAT}")
+
+    try:
+        await client.send_message(
+            TARGET_CHAT,
+            "✅ Ruma repost bot ishga tushdi. Test xabar."
+        )
+        log("TEST MESSAGE SENT TO TARGET CHANNEL.")
+    except Exception as e:
+        log(f"ERROR sending test message to target: {e}")
 
     await client.run_until_disconnected()
 
