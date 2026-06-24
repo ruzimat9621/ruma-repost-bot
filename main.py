@@ -81,27 +81,115 @@ async def main():
         API_HASH
     )
 
-    async def send_repost(message):
-        caption = build_caption(message.message)
+    async def send_single_message(message):
+        original_text = message.message or ""
+        caption = build_caption(original_text)
+
+        log(f"SENDING SINGLE. has_media={bool(message.media)}, text_len={len(original_text)}")
 
         if message.media:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                file_path = await message.download_media(file=tmpdir)
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    file_path = await client.download_media(message, file=tmpdir)
 
-                if file_path:
-                    if len(caption) <= 1000:
+                    log(f"DOWNLOADED MEDIA PATH: {file_path}")
+
+                    if not file_path:
+                        await client.send_message(TARGET_CHAT, caption)
+                        log("MEDIA DOWNLOAD EMPTY. SENT CAPTION ONLY.")
+                        return
+
+                    if len(caption) <= 1024:
                         await client.send_file(
                             TARGET_CHAT,
                             file_path,
-                            caption=caption
+                            caption=caption,
+                            force_document=False
                         )
                     else:
-                        await client.send_file(TARGET_CHAT, file_path)
+                        await client.send_file(
+                            TARGET_CHAT,
+                            file_path,
+                            force_document=False
+                        )
                         await client.send_message(TARGET_CHAT, caption)
-                else:
-                    await client.send_message(TARGET_CHAT, caption)
+
+                    log("MEDIA SENT SUCCESSFULLY.")
+
+            except Exception as e:
+                log(f"MEDIA ERROR: {repr(e)}")
+                await client.send_message(
+                    TARGET_CHAT,
+                    f"{caption}\n\n⚠️ Media repost bo‘lmadi. Sabab: {str(e)}"
+                )
         else:
             await client.send_message(TARGET_CHAT, caption)
+            log("TEXT SENT SUCCESSFULLY.")
+
+    async def send_album(event):
+        messages = event.messages
+        first_text = ""
+
+        for msg in messages:
+            if msg.message:
+                first_text = msg.message
+                break
+
+        caption = build_caption(first_text)
+
+        log(f"ALBUM DETECTED. count={len(messages)}, caption_len={len(caption)}")
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                files = []
+
+                for msg in messages:
+                    if msg.media:
+                        file_path = await client.download_media(msg, file=tmpdir)
+                        if file_path:
+                            files.append(file_path)
+                            log(f"ALBUM FILE DOWNLOADED: {file_path}")
+
+                if files:
+                    if len(caption) <= 1024:
+                        await client.send_file(
+                            TARGET_CHAT,
+                            files,
+                            caption=caption,
+                            force_document=False
+                        )
+                    else:
+                        await client.send_file(
+                            TARGET_CHAT,
+                            files,
+                            force_document=False
+                        )
+                        await client.send_message(TARGET_CHAT, caption)
+
+                    log("ALBUM SENT SUCCESSFULLY.")
+                else:
+                    await client.send_message(TARGET_CHAT, caption)
+                    log("ALBUM FILES EMPTY. SENT CAPTION ONLY.")
+
+        except Exception as e:
+            log(f"ALBUM ERROR: {repr(e)}")
+            await client.send_message(
+                TARGET_CHAT,
+                f"{caption}\n\n⚠️ Album repost bo‘lmadi. Sabab: {str(e)}"
+            )
+
+    @client.on(events.Album(chats=SOURCE_CHATS))
+    async def album_handler(event):
+        try:
+            if event.out:
+                log("SKIPPED OUTGOING ALBUM.")
+                return
+
+            log(f"SOURCE ALBUM DETECTED. chat_id={event.chat_id}")
+            await send_album(event)
+
+        except Exception as e:
+            log(f"ERROR while album reposting: {repr(e)}")
 
     @client.on(events.NewMessage(chats=SOURCE_CHATS))
     async def repost_handler(event):
@@ -112,14 +200,18 @@ async def main():
                 log(f"SKIPPED OUTGOING MESSAGE. chat_id={event.chat_id}, message_id={message.id}")
                 return
 
+            if message.grouped_id:
+                log(f"SKIPPED GROUPED MESSAGE. grouped_id={message.grouped_id}")
+                return
+
             log(f"SOURCE MESSAGE DETECTED. chat_id={event.chat_id}, message_id={message.id}")
 
-            await send_repost(message)
+            await send_single_message(message)
 
             log(f"REPOSTED SUCCESSFULLY. message_id={message.id}")
 
         except Exception as e:
-            log(f"ERROR while reposting: {e}")
+            log(f"ERROR while reposting: {repr(e)}")
 
     await start_web_server()
     await client.start()
